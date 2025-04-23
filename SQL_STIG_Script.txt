@@ -1,0 +1,175 @@
+-- Ensure you run this script with appropriate permissions (e.g., sysadmin role).
+ 
+-- 1. Enable Auditing for SQL Server
+-- Create an audit object
+CREATE SERVER AUDIT [SQLServerAudit]
+TO FILE ( FILEPATH = N'C:\AuditLogs\' )
+WITH ( QUEUE_DELAY = 1000, ON_FAILURE = CONTINUE );
+GO
+ 
+-- Enable the audit
+ALTER SERVER AUDIT [SQLServerAudit]
+WITH ( STATE = ON );
+GO
+ 
+-- Create an audit specification
+CREATE SERVER AUDIT SPECIFICATION [SQLServerAuditSpecification]
+FOR SERVER AUDIT [SQLServerAudit]
+ADD ( LOGIN_CHANGE_PASSWORD_GROUP ),
+ADD ( FAILED_LOGIN_GROUP ),
+ADD ( SUCCESSFUL_LOGIN_GROUP );
+GO
+ 
+-- Enable the audit specification
+ALTER SERVER AUDIT SPECIFICATION [SQLServerAuditSpecification]
+WITH ( STATE = ON );
+GO
+ 
+-- 2. Enforce Password Policy for SQL Server Logins
+-- Check existing logins and enforce password policies
+-- NOTE: Be cautious with these changes in production environments
+
+--DECLARE @sql NVARCHAR(MAX) = '';
+ 
+--SELECT @sql += 'ALTER LOGIN [' + name + '] WITH CHECK_POLICY = ON;'
+--FROM sys.server_principals
+--WHERE type = 'S' -- SQL logins
+-- AND name NOT IN ('sa'); -- Exclude system admin account
+ 
+--EXEC sp_executesql @sql;
+--GO
+ 
+-- 3. Manage SQL Server Logins
+-- Add required logins to the sysadmin role
+-- Replace 'your_login' with actual login names you want to add
+BEGIN TRY
+    EXEC sp_addsrvrolemember 'FtWash\sym3admin', 'sysadmin';
+    PRINT 'Added login to sysadmin role: sym3admin';
+END TRY
+BEGIN CATCH
+    PRINT 'Error adding login to sysadmin role: ' + ERROR_MESSAGE();
+END CATCH;
+GO
+ 
+-- Remove unnecessary logins from the sysadmin role
+-- Replace 'unwanted_login' with actual login names you want to remove
+ 
+-- commenting the below section out
+--BEGIN TRY
+   --EXEC sp_dropsrvrolemember 'unwanted_login', 'sysadmin';
+    --PRINT 'Removed login from sysadmin role: unwanted_login';
+--END TRY
+--BEGIN CATCH
+    --PRINT 'Error removing login from sysadmin role: ' + ERROR_MESSAGE();
+--END CATCH;
+--GO
+ 
+-- 4. Configure SQL Server Service Accounts to use minimal permissions
+-- Ensure the SQL Server service accounts are using minimal required permissions
+-- NOTE: This needs to be done outside of SQL Server, in the Windows Services configuration
+ 
+-- 5. Check and Apply Security Configuration Options
+-- Enable Force Encryption
+EXEC sp_configure 'show advanced options', 1;
+GO
+RECONFIGURE;
+GO
+sp_configure 'common criteria compliance enabled', 1;   
+GO   
+RECONFIGURE   
+GO
+--The below 3 lines do not work, needs to be manual.
+--EXEC sp_configure 'force encryption', 1;
+--RECONFIGURE;
+--GO
+-- Remove remote access
+sp_configure 'remote access', 0;
+GO
+RECONFIGURE;
+GO
+-- STIG ID SQL6-D0-016300 (rename [sa] account)
+USE master;
+GO
+ALTER LOGIN [sa] WITH NAME = sa1
+GO
+
+-- Generate audit records showing start/end time for access
+-- SQL6-D0-015100
+USE [master];
+GO
+ALTER SERVER AUDIT SPECIFICATION SQLServerAuditSpecification WITH (STATE = OFF)
+GO
+ALTER SERVER AUDIT SPECIFICATION SQLServerAuditSpecification ADD (LOGOUT_GROUP)
+ALTER SERVER AUDIT SPECIFICATION SQLServerAuditSpecification ADD (APPLICATION_ROLE_CHANGE_PASSWORD_GROUP);
+ALTER SERVER AUDIT SPECIFICATION SQLServerAuditSpecification ADD (AUDIT_CHANGE_GROUP);
+ALTER SERVER AUDIT SPECIFICATION SQLServerAuditSpecification ADD (BACKUP_RESTORE_GROUP);
+ALTER SERVER AUDIT SPECIFICATION SQLServerAuditSpecification ADD (DATABASE_CHANGE_GROUP);
+ALTER SERVER AUDIT SPECIFICATION SQLServerAuditSpecification ADD (DATABASE_OBJECT_CHANGE_GROUP);
+ALTER SERVER AUDIT SPECIFICATION SQLServerAuditSpecification ADD (DATABASE_OBJECT_OWNERSHIP_CHANGE_GROUP);
+ALTER SERVER AUDIT SPECIFICATION SQLServerAuditSpecification ADD (DATABASE_OBJECT_PERMISSION_CHANGE_GROUP);
+ALTER SERVER AUDIT SPECIFICATION SQLServerAuditSpecification ADD (DATABASE_OPERATION_GROUP);
+ALTER SERVER AUDIT SPECIFICATION SQLServerAuditSpecification ADD (DATABASE_OWNERSHIP_CHANGE_GROUP);
+ALTER SERVER AUDIT SPECIFICATION SQLServerAuditSpecification ADD (DATABASE_PERMISSION_CHANGE_GROUP);
+ALTER SERVER AUDIT SPECIFICATION SQLServerAuditSpecification ADD (DATABASE_PRINCIPAL_CHANGE_GROUP);
+ALTER SERVER AUDIT SPECIFICATION SQLServerAuditSpecification ADD (DATABASE_PRINCIPAL_IMPERSONATION_GROUP);
+ALTER SERVER AUDIT SPECIFICATION SQLServerAuditSpecification ADD (DATABASE_ROLE_MEMBER_CHANGE_GROUP);
+ALTER SERVER AUDIT SPECIFICATION SQLServerAuditSpecification ADD (DBCC_GROUP);
+ALTER SERVER AUDIT SPECIFICATION SQLServerAuditSpecification ADD (LOGIN_CHANGE_PASSWORD_GROUP);
+ALTER SERVER AUDIT SPECIFICATION SQLServerAuditSpecification ADD (LOGOUT_GROUP);
+ALTER SERVER AUDIT SPECIFICATION SQLServerAuditSpecification ADD (SCHEMA_OBJECT_CHANGE_GROUP);
+ALTER SERVER AUDIT SPECIFICATION SQLServerAuditSpecification ADD (SCHEMA_OBJECT_OWNERSHIP_CHANGE_GROUP);
+ALTER SERVER AUDIT SPECIFICATION SQLServerAuditSpecification ADD (SCHEMA_OBJECT_PERMISSION_CHANGE_GROUP);
+ALTER SERVER AUDIT SPECIFICATION SQLServerAuditSpecification ADD (SERVER_OBJECT_CHANGE_GROUP);
+ALTER SERVER AUDIT SPECIFICATION SQLServerAuditSpecification ADD (SERVER_OBJECT_OWNERSHIP_CHANGE_GROUP);
+ALTER SERVER AUDIT SPECIFICATION SQLServerAuditSpecification ADD (SERVER_OBJECT_PERMISSION_CHANGE_GROUP);
+ALTER SERVER AUDIT SPECIFICATION SQLServerAuditSpecification ADD (SERVER_OPERATION_GROUP);
+ALTER SERVER AUDIT SPECIFICATION SQLServerAuditSpecification ADD (SERVER_PERMISSION_CHANGE_GROUP);
+ALTER SERVER AUDIT SPECIFICATION SQLServerAuditSpecification ADD (SERVER_PRINCIPAL_CHANGE_GROUP);
+ALTER SERVER AUDIT SPECIFICATION SQLServerAuditSpecification ADD (SERVER_PRINCIPAL_IMPERSONATION_GROUP);
+ALTER SERVER AUDIT SPECIFICATION SQLServerAuditSpecification ADD (SERVER_ROLE_MEMBER_CHANGE_GROUP);
+ALTER SERVER AUDIT SPECIFICATION SQLServerAuditSpecification ADD (SERVER_STATE_CHANGE_GROUP);
+ALTER SERVER AUDIT SPECIFICATION SQLServerAuditSpecification ADD (TRACE_CHANGE_GROUP);
+ALTER SERVER AUDIT SPECIFICATION SQLServerAuditSpecification ADD (USER_CHANGE_PASSWORD_GROUP);
+GO
+ALTER SERVER AUDIT SPECIFICATION SQLServerAuditSpecification WITH (STATE = ON)
+GO
+
+--revoking [NT AUTHORITY\SYSTEM] from accessing the instance
+--STIG ID: SQL6-D0-004100
+-- MANUALLY remove the settings under the following:
+-- Security -> Logins -> NT AUTHORITY\SYSTEM -> Properties -> Securables
+-- Should only have the following: "VIEW ANY DATABASE", "CONNECT SQL", and "VIEW SERVER STATE". 
+
+CREATE TRIGGER SQL_STIG_Connection_Limit 
+ON ALL SERVER WITH EXECUTE AS 'sa1' Make sure to use the renamed SA account here 
+FOR LOGON 
+AS 
+BEGIN 
+If (Select COUNT(1) from sys.dm_exec_sessions WHERE is_user_process = 1 AND original_login_name = ORIGINAL_LOGIN() ) > 
+  (CASE ORIGINAL_LOGIN()
+              WHEN 'sa1' THEN 25  i.e. the renamed system administrator SQL Login can have up to 25 concurrent logins...
+              WHEN 'FtWash\sym3admin' THEN 150 this is a busy DBA’s domain account
+              ELSE 1 All unspecified users are restricted to a single login
+  END)
+              BEGIN 
+                             PRINT 'The login [' + ORIGINAL_LOGIN() + '] has exceeded its concurrent session limit.' 
+                             ROLLBACK; 
+              END
+END; 
+
+-- Adding new roles, adding "devel" to said role
+CREATE SERVER ROLE Server_Audit_Maintainers; 
+GO 
+GRANT ALTER ANY SERVER AUDIT TO Server_Audit_Maintainers; 
+GO
+ALTER SERVER ROLE Server_Audit_Maintainers ADD MEMBER devel; 
+GO
+
+
+
+
+-- Validate Settings
+-- Verify current settings to ensure compliance
+SELECT * FROM sys.server_audits;
+SELECT * FROM sys.server_audit_specifications;
+SELECT * FROM sys.server_principals WHERE type = 'S';
